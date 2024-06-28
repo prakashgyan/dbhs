@@ -1,6 +1,8 @@
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, jsonify
 from .models import db, Sign
 import uuid
+from datetime import datetime, timedelta  
+# import pytz  
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///signs.db'
@@ -30,7 +32,7 @@ def templates():
 def show_sign(sign_id):
     sign = Sign.query.get(sign_id)
     if sign:
-        return render_template('sign.html', sign=sign)
+        return render_template('sign.html', sign=sign, sign_id=sign_id)
     else:
         return "Sign not found", 404
 
@@ -55,3 +57,31 @@ def create_sign():
         db.session.commit()
         return redirect(url_for('show_sign', sign_id=sign_id))
     return render_template('create_sign.html')
+
+
+@app.route('/get_schedule_info')  
+def get_schedule_info():  
+    sign_key = request.args.get('sign_key', default = "", type = str)  
+    local_time = request.args.get('local_time', default = "", type = str)  
+    local_time = datetime.strptime(local_time, '%Y-%m-%dT%H:%M:%S.%fZ')  # assuming local time is sent as a string in ISO format  
+  
+    weekday = local_time.strftime('%A').lower()  
+  
+    sign = Sign.query.filter_by(id=sign_key).first()  
+  
+    if getattr(sign, f'is_open_{weekday}'):  
+        open_time = datetime.strptime(sign.opening_time, '%H:%M')  
+        close_time = datetime.strptime(sign.closing_time, '%H:%M')  
+  
+        if open_time.time() <= local_time.time() <= close_time.time():  
+            state = 'OPEN'  
+            change_time = local_time.replace(hour=close_time.hour, minute=close_time.minute) - local_time  
+        else:  
+            state = 'CLOSED'  
+            change_time = local_time.replace(hour=open_time.hour, minute=open_time.minute) - local_time  
+    else:  
+        state = 'CLOSED'  
+        change_time = timedelta(days=1)  
+  
+    return jsonify({'state': state, 'change_time': str(change_time.total_seconds() // 3600)})  
+
